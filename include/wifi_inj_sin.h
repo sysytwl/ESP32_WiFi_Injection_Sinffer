@@ -100,7 +100,6 @@ struct Air2Ground_Header{
     enum Type: uint8_t{
         Video,
         Telemetry,
-        OSD,
     } type;
 
     uint32_t size = 0;
@@ -177,6 +176,8 @@ public:
 
 
 private:
+    static void packet_received_cb(uint8_t* buf, uint8_t type);
     void _injection(uint8_t* data, size_t len);
     uint8_t _mac[6];
+    uint8_t target_src_mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01};
 };
