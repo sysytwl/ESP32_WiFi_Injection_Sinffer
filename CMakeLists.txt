@@ -16,12 +16,12 @@ else()
     set(CMAKE_C_STANDARD_REQUIRED ON)
 
     # 源文件
-    #set(SRC_FILES
-        #"src/wifi_inj_sin.cpp"
-    #)
+    set(SRC_FILES
+        "src/empty.cpp"
+    )
 
     # 头文件目录
-    include_directories(include)
+    include_directories( ./include)
 
     # 生成静态库
     add_library(ESP32_WiFi_Injection_Sinffer STATIC ${SRC_FILES})
