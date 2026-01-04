@@ -94,7 +94,7 @@ IRAM_ATTR void WiFi_injection_sniffer::send_air2ground_video_packet(bool last, u
         packet.last_part = last ? 1 : 0;
         packet.size = packet_size; /*NEED TO REMOVE*/
         packet.pong = 0;
-        packet.version = PACKET_VERSION;
+        packet.packet_version = PACKET_VERSION;
 
     _injection(packet_data, packet_size+sizeof(Air2Ground_Video_Packet)); //TODO: return error
 };
