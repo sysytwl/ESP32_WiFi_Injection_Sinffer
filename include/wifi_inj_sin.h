@@ -115,6 +115,7 @@ struct Air2Ground_Video_Packet : Air2Ground_Header{
     //uint8_t data[AIR2GROUND_VIDEO_MAX_PAYLOAD_SIZE];
 };
 constexpr size_t Air2Ground_Video_Packet_Header_Size = sizeof(Air2Ground_Video_Packet);
+static_assert(Air2Ground_Video_Packet_Header_Size == 16, "");
 constexpr size_t AIR2GROUND_VIDEO_HEADER_OFFSET = WLAN_PAYLOAD_OFFSET + sizeof(Air2Ground_Video_Packet);
 constexpr size_t AIR2GROUND_VIDEO_MAX_PAYLOAD_SIZE = WLAN_MAX_PAYLOAD_SIZE - sizeof(Air2Ground_Video_Packet);
 
