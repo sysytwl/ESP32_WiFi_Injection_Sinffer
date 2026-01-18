@@ -6,9 +6,8 @@ if(DEFINED ENV{IDF_PATH})
 
     idf_component_register(
         SRCS ${srcs}
-        INCLUDE_DIRS "include"
-        #REQUIRES esp_wifi nvs_flash
-        PRIV_REQUIRES esp_wifi nvs_flash
+        INCLUDE_DIRS "include" 
+        PRIV_REQUIRES esp_wifi nvs_flash esp_timer
     )
 else()
     # 设置C标准
