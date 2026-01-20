@@ -1,5 +1,15 @@
 #pragma once
 #include <cstring>
+#ifdef ESP_PLATFORM
+  #include "esp_log.h"
+  #include "esp_err.h"
+  #ifdef CONFIG_SPIRAM
+    #include "esp_heap_caps.h"
+  #endif
+#else
+  #define ESP_LOGE(tag, format, ...) fprintf(stderr, format, ##__VA_ARGS__)
+  #define ESP_LOGI(tag, format, ...) fprintf(stdout, format, ##__VA_ARGS__)
+#endif
 
 
 //#include "esp_private/wifi.h"
@@ -9,7 +19,7 @@
 //#include "crc.h"
 
 #define DEFAULT_WIFI_CHANNEL 13
-#define PACKET_VERSION 1
+#define PACKET_VERSION 2
 
 //https://www.geeksforgeeks.org/ieee-802-11-mac-frame/
 //https://en.wikipedia.org/wiki/802.11_Frame_Types
@@ -18,7 +28,7 @@
 constexpr uint8_t WLAN_IEEE_HEADER_AIR2GROUND[]={
   0x08, 0x00,//frame control
   0x00, 0x00,//2-3: Duration
-  0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF,// 4-9: Destination address (broadcast)
+  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,// 4-9: Destination address (broadcast)
   0x94, 0xb5, 0x55, 0x26, 0xe2, 0xfc,// 10-15: Source address/from
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00,// 16-21: BSSID/to
   0x10, 0x86// 22-23: Sequence / fragment number
@@ -35,7 +45,7 @@ constexpr uint8_t WLAN_IEEE_HEADER_GROUND2AIR[]={
 
 constexpr size_t WLAN_IEEE_HEADER_SIZE = sizeof(WLAN_IEEE_HEADER_AIR2GROUND);
 static_assert(WLAN_IEEE_HEADER_SIZE == 24, "");
-constexpr size_t WLAN_MAX_PACKET_SIZE = 1500;
+constexpr size_t WLAN_MAX_PACKET_SIZE = 1024;
 constexpr size_t WLAN_MAX_PAYLOAD_SIZE = WLAN_MAX_PACKET_SIZE - WLAN_IEEE_HEADER_SIZE;
 constexpr size_t WLAN_PAYLOAD_OFFSET = WLAN_IEEE_HEADER_SIZE;
 
@@ -46,14 +56,14 @@ struct Ground2Air_Header{
         Telemetry,
         Config,
     } type;
-    uint32_t size = 0;
     uint8_t packet_version = PACKET_VERSION; //version of the packet structure
 };
-constexpr size_t GROUND2AIR_DATA_MAX_PAYLOAD_SIZE = WLAN_MAX_PAYLOAD_SIZE - sizeof(Ground2Air_Header);
 
 struct Ground2Air_Data_Packet : Ground2Air_Header{
-    uint8_t payload[GROUND2AIR_DATA_MAX_PAYLOAD_SIZE];
+    uint16_t channel_data [4];
+    uint8_t channel_data_1 [10];
 };
+static_assert(sizeof(Ground2Air_Data_Packet) < WLAN_MAX_PAYLOAD_SIZE, "");
 
 struct Ground2Air_Config_Packet: Ground2Air_Header{
     uint8_t ping = 0; //used for latency measurement
@@ -65,7 +75,6 @@ struct Ground2Air_Config_Packet: Ground2Air_Header{
     //Description of some settings: https://heyrick.eu/blog/index.php?diary=20210418&keitai=0
     struct Camera_config{
         uint8_t resolution;
-        uint8_t pixformat; //GRAYSCALE|RAW8|JPEG
         uint8_t quality = 0;//0 - 63  0-auto
         int8_t brightness = 0;//-2 - 2
         int8_t contrast = 0;//-2 - 2
@@ -101,16 +110,14 @@ struct Air2Ground_Header{
         Video,
         Telemetry,
     } type;
-
-    uint32_t size = 0;
+    uint8_t part_index;
+    uint8_t frame_index;
     uint8_t pong = 0; //used for latency measurement
     uint8_t packet_version = PACKET_VERSION;
 };
 
 struct Air2Ground_Video_Packet : Air2Ground_Header{
-    uint8_t part_index : 7;
-    uint8_t last_part : 1;
-    uint32_t frame_index = 0;
+    uint8_t frame;
     //data follows
     //uint8_t data[AIR2GROUND_VIDEO_MAX_PAYLOAD_SIZE];
 };
@@ -151,7 +158,7 @@ struct Air2Ground_MAVLink_Packet : Air2Ground_Header{
 
 class WiFi_injection_sniffer{
 public:
-    void init();
+    void init(uint16_t *channel_data, int8_t *noise_floor, int8_t *rssi);
     
     void set_wifi_fixed_rate(uint8_t value);
 
@@ -173,13 +180,25 @@ public:
         // packet.crc = 0;
     };
 
-    void send_air2ground_video_packet(bool last, uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index);
+    esp_err_t send_air2ground_video_packet(bool last, uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index);
 
-
+    float calculate_throughput();
 
 private:
     static void packet_received_cb(uint8_t* buf, uint8_t type);
-    void _injection(uint8_t* data, size_t len);
+    esp_err_t _injection(uint8_t* data, size_t len);
     uint8_t _mac[6];
-    uint8_t target_src_mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01};
+
+    uint8_t *_tx_header;
+
+    //throughput
+    int64_t _last_time = 0;
+    size_t _send_size = 0;
+
+    //ground2air
+    static uint16_t *_channel_data;
+    static int8_t *_noise_floor;
+    static int8_t *_rssi;
 };
+
+

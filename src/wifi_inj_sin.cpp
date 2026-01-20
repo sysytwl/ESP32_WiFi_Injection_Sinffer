@@ -4,10 +4,17 @@
 #include "esp_wifi.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_timer.h"
+
+uint16_t* WiFi_injection_sniffer::_channel_data = nullptr;
+int8_t* WiFi_injection_sniffer::_noise_floor = nullptr;
+int8_t* WiFi_injection_sniffer::_rssi = nullptr;
 
 static const char *TAG = "wifi injection and sniffer";
 
-void WiFi_injection_sniffer::init(){ //setup_wifi
+void WiFi_injection_sniffer::init(uint16_t *channel_data, int8_t *noise_floor, int8_t *rssi){ //setup_wifi
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -24,14 +31,23 @@ void WiFi_injection_sniffer::init(){ //setup_wifi
     //     .ersu = false,
     //     .dcm = false,
     // };
-    // ESP_ERROR_CHECK(esp_wifi_config_80211_tx(WIFI_IF_AP, &tx_rate_config));
+    // ESP_ERROR_CHECK(esp_wifi_config_80211_tx(WIFI_MODE, &tx_rate_config));
+
+    wifi_country_t county_config={
+        .cc="JP",
+        .schan=1,
+        .nchan=14,
+        .max_tx_power=84,
+        .policy=WIFI_COUNTRY_POLICY_MANUAL,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_country(&county_config));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
 	wifi_config_t ap_config = {
 		.ap = {
 			.ssid = "",
 			.ssid_len = 0,
-			.channel = 1,
+			.channel = 13,
 			.authmode = WIFI_AUTH_OPEN,
 			.ssid_hidden = 1,
 			.max_connection = 1,
@@ -40,18 +56,22 @@ void WiFi_injection_sniffer::init(){ //setup_wifi
 	};
 	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
 
-    // ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT40));
-    ESP_ERROR_CHECK(esp_wifi_config_80211_tx_rate(WIFI_IF_AP, WIFI_PHY_RATE_54M));
+    // ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_MODE, WIFI_BW_HT40));
+    ESP_ERROR_CHECK(esp_wifi_config_80211_tx_rate(WIFI_IF_AP, WIFI_PHY_RATE_24M));
     // wifi_bandwidths_t bw;
-    // ESP_ERROR_CHECK(esp_wifi_get_bandwidths(WIFI_IF_AP, &bw));
+    // ESP_ERROR_CHECK(esp_wifi_get_bandwidths(WIFI_MODE, &bw));
     // ESP_LOGI(TAG, "Wi-Fi AP bandwidths: 2.4GHz: %d, 5GHz: %d", bw.ghz_2g, bw.ghz_5g);
 
     ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    ESP_ERROR_CHECK(esp_wifi_set_channel(13, WIFI_SECOND_CHAN_NONE));
+    ESP_ERROR_CHECK(esp_wifi_set_channel(DEFAULT_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE));
 
     /* Sinffer */
+    _channel_data = channel_data;
+    _noise_floor = noise_floor;
+    _rssi = rssi;
+
     wifi_promiscuous_filter_t filter = {
         .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA
     };
@@ -61,7 +81,7 @@ void WiFi_injection_sniffer::init(){ //setup_wifi
     ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
 
     //set mac address
-    // ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_AP, _mac)); // cause error esp_wifi_80211_tx en_sys_seq
+    // ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_MODE, _mac)); // cause error esp_wifi_80211_tx en_sys_seq
     // ESP_LOGI(TAG, "Wi-Fi AP MAC: %02x:%02x:%02x:%02x:%02x:%02x", _mac[0], _mac[1], _mac[2], _mac[3], _mac[4], _mac[5]);
 
     // ESP_ERROR_CHECK(esp_read_mac(_mac,ESP_MAC_WIFI_STA)); // might cause error 
@@ -78,6 +98,10 @@ void WiFi_injection_sniffer::init(){ //setup_wifi
 
     // ESP_ERROR_CHECK(esp_efuse_mac_get_default(_mac)); // same as base mac
     // ESP_LOGI(TAG, "ESP32 efuse MAC: %02x:%02x:%02x:%02x:%02x:%02x", _mac[0], _mac[1], _mac[2], _mac[3], _mac[4], _mac[5]);
+
+    _tx_header = new uint8_t [WLAN_IEEE_HEADER_SIZE];
+    memcpy(_tx_header, WLAN_IEEE_HEADER_AIR2GROUND, WLAN_IEEE_HEADER_SIZE);
+    memcpy(_tx_header + 10, _mac, 6);
 };
 
 void WiFi_injection_sniffer::set_wifi_fixed_rate(uint8_t value){
@@ -86,16 +110,15 @@ void WiFi_injection_sniffer::set_wifi_fixed_rate(uint8_t value){
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-IRAM_ATTR void WiFi_injection_sniffer::send_air2ground_video_packet(bool last, uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index){
+IRAM_ATTR esp_err_t WiFi_injection_sniffer::send_air2ground_video_packet(bool last, uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index){
     Air2Ground_Video_Packet& packet = *(Air2Ground_Video_Packet*)(packet_data+WLAN_PAYLOAD_OFFSET);
         packet.type = Air2Ground_Header::Type::Video;
-        packet.frame_index = frame_index; /*NEED TO CHANGE*/
+        packet.frame_index = frame_index;
         packet.part_index = part_index;
-        packet.last_part = last ? 1 : 0;
-        packet.size = packet_size; /*NEED TO REMOVE*/
         packet.pong = 0;
+        packet.packet_version = PACKET_VERSION;
 
-    _injection(packet_data, packet_size+sizeof(Air2Ground_Video_Packet)); //TODO: return error
+    return _injection(packet_data, packet_size+sizeof(Air2Ground_Video_Packet)); //TODO: return error
 };
 
 /* Private */
@@ -105,64 +128,47 @@ IRAM_ATTR void WiFi_injection_sniffer::packet_received_cb(uint8_t* buf, uint8_t 
 
     //mac compare, sender check
     WiFi_injection_sniffer instance;
-    const uint8_t *src_mac = &payload[10];
-    for (int i = 0; i < 6; i++) {
-        if (src_mac[i] != instance.target_src_mac[i]){
-            ESP_LOGD(TAG, "No Matched Source MAC");
-            return;
-        }
-    }
+    const uint8_t *src_mac = payload + 16;
+    if (memcmp(src_mac, &instance._mac, 6) != 0) return; //not the pack for us
 
-    //memcpy following part
-    ESP_LOGD(TAG, "PACK TYPE: %d", type);
+    *_rssi = pkt->rx_ctrl.rssi;
+    *_noise_floor = pkt->rx_ctrl.noise_floor;
 
-    int8_t rssi = pkt->rx_ctrl.rssi;
-    ESP_LOGD(TAG, "RSSI: %d dBm", rssi);
-
-    int8_t noise_floor = pkt->rx_ctrl.noise_floor;
-    ESP_LOGD(TAG, "Noise_floor: %d dBm", rssi);
-
-    ESP_LOGD(TAG, "sig_mode: %u", pkt->rx_ctrl.sig_mode);           // 0: 11bg, 1: HT (11n), 3: VHT (11ac)
-    ESP_LOGD(TAG, "mcs: %u", pkt->rx_ctrl.mcs);                     // Modulation Coding Scheme (0–76)
-    ESP_LOGD(TAG, "cwb: %u", pkt->rx_ctrl.cwb);                     // Channel bandwidth: 0 = 20MHz, 1 = 40MHz
-    ESP_LOGD(TAG, "smoothing: %u", pkt->rx_ctrl.smoothing);         // Channel estimate smoothing recommendation
-    ESP_LOGD(TAG, "not_sounding: %u", pkt->rx_ctrl.not_sounding);   // PPDU sounding indication
-    ESP_LOGD(TAG, "aggregation: %u", pkt->rx_ctrl.aggregation);     // 0 = MPDU, 1 = AMPDU
-    ESP_LOGD(TAG, "stbc: %u", pkt->rx_ctrl.stbc);                   // Space Time Block Coding (0 = none, 1 = used)
-    ESP_LOGD(TAG, "fec_coding: %u", pkt->rx_ctrl.fec_coding);       // LDPC FEC coding flag (for 11n)
-    ESP_LOGD(TAG, "sgi: %u", pkt->rx_ctrl.sgi);                     // Short Guard Interval flag
-
-    Air2Ground_Header* air2ground_payload = (Air2Ground_Header*)payload;
-    if(air2ground_payload->type == Air2Ground_Header::Type::Video){
-
-    } else if(air2ground_payload->type == Air2Ground_Header::Type::Telemetry){
+    Ground2Air_Header* ground2air_payload = (Ground2Air_Header*)payload;
+    if(ground2air_payload->type == Ground2Air_Header::Type::Telemetry){
+        //Ground2Air_Data_Packet *ground2air_payload = (Ground2Air_Data_Packet*)payload;
+        //memcpy(_channel_data, &ground2air_payload->channel_data[0], sizeof(ground2air_payload->channel_data));
+        //for (uint8_t i=0; i<10; i++){
+        //    _channel_data[i+4] = ground2air_payload->channel_data_1[i];
+        //}
+    }else if(ground2air_payload->type == Ground2Air_Header::Type::Config){
 
     }else{
         ESP_LOGE(TAG,"Unknow type");
     };
 };
 
-IRAM_ATTR void WiFi_injection_sniffer::_injection(uint8_t* data, size_t len){
-    if(data == nullptr || len == 0 || len > WLAN_MAX_PAYLOAD_SIZE){
-        ESP_LOGE(TAG, "Invalid data or length for injection: %d", len);
-        return; //invalid data
-    }
-    memcpy(data, WLAN_IEEE_HEADER_AIR2GROUND, WLAN_IEEE_HEADER_SIZE);
-    memcpy(data + 10, _mac, 6);
+IRAM_ATTR esp_err_t WiFi_injection_sniffer::_injection(uint8_t* data, size_t len){
+    // if(data == nullptr || len == 0 || len > WLAN_MAX_PAYLOAD_SIZE){
+    //     ESP_LOGE(TAG, "Invalid data or length for injection: %d", len);
+    //     return ESP_ERR_INVALID_SIZE; //invalid data
+    // }    
+    memcpy(data, _tx_header, WLAN_IEEE_HEADER_SIZE);
 
-    esp_err_t err;
-    do{
-        err = esp_wifi_80211_tx(WIFI_IF_AP, data, WLAN_IEEE_HEADER_SIZE + len, false);
-        if (err == ESP_ERR_NO_MEM) {
-        ESP_LOGE(TAG, "WiFi Tx rate is too low");
-        vTaskDelay(portTICK_PERIOD_MS*5);
-        }
-    }while(err == ESP_ERR_NO_MEM);
-    
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send data: %s", esp_err_to_name(err));
-    }
+    size_t size_to_send = WLAN_IEEE_HEADER_SIZE + len;
+    _send_size += size_to_send;
+    return esp_wifi_80211_tx(WIFI_IF_AP, data, size_to_send, false);
 };
+
+float WiFi_injection_sniffer::calculate_throughput(){
+    int64_t current_time = esp_timer_get_time();
+    int64_t duration_time = current_time - _last_time;
+    float result = (float)_send_size / (float)duration_time * 1000.0;
+    _last_time = esp_timer_get_time();
+    _send_size = 0;
+
+    return result;
+}
 
 //Rx logic
 // 1. rx call back, check sender, memcpy to ring buffer
