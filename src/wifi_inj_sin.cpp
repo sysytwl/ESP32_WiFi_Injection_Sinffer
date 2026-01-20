@@ -110,15 +110,14 @@ void WiFi_injection_sniffer::set_wifi_fixed_rate(uint8_t value){
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-IRAM_ATTR esp_err_t WiFi_injection_sniffer::send_air2ground_video_packet(bool last, uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index){
-    Air2Ground_Video_Packet& packet = *(Air2Ground_Video_Packet*)(packet_data+WLAN_PAYLOAD_OFFSET);
+IRAM_ATTR esp_err_t WiFi_injection_sniffer::send_air2ground_video_packet(uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index){
+    Air2Ground_Header& packet = *(Air2Ground_Header*)(packet_data+WLAN_IEEE_HEADER_SIZE);
         packet.type = Air2Ground_Header::Type::Video;
         packet.frame_index = frame_index;
         packet.part_index = part_index;
-        packet.pong = 0;
         packet.packet_version = PACKET_VERSION;
 
-    return _injection(packet_data, packet_size+sizeof(Air2Ground_Video_Packet)); //TODO: return error
+    return _injection(packet_data, packet_size+sizeof(Air2Ground_Header));
 };
 
 /* Private */
