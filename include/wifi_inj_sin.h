@@ -47,9 +47,6 @@ constexpr size_t WLAN_IEEE_HEADER_SIZE = sizeof(WLAN_IEEE_HEADER_AIR2GROUND);
 static_assert(WLAN_IEEE_HEADER_SIZE == 24, "");
 constexpr size_t WLAN_MAX_PACKET_SIZE = 1024;
 constexpr size_t WLAN_MAX_PAYLOAD_SIZE = WLAN_MAX_PACKET_SIZE - WLAN_IEEE_HEADER_SIZE;
-constexpr size_t WLAN_PAYLOAD_OFFSET = WLAN_IEEE_HEADER_SIZE;
-
-
 
 struct Ground2Air_Header{
     enum Type: uint8_t{
@@ -111,19 +108,22 @@ struct Air2Ground_Header{
         Telemetry,
     } type;
     uint8_t part_index;
-    uint8_t frame_index;
-    uint8_t pong = 0; //used for latency measurement
-    uint8_t packet_version = PACKET_VERSION;
+    uint8_t packet_version;
+    uint8_t pong;
+    uint16_t frame_index;
 };
+constexpr size_t Air2Ground_Header_Size = sizeof(Air2Ground_Header);
+static_assert(Air2Ground_Header_Size == 6, "");
 
-struct Air2Ground_Video_Packet : Air2Ground_Header{
-    uint8_t frame;
+struct Air2Ground_Video_Packet{
+    bool vsync;
+    uint8_t img_count;
     //data follows
     //uint8_t data[AIR2GROUND_VIDEO_MAX_PAYLOAD_SIZE];
 };
-constexpr size_t Air2Ground_Video_Packet_Header_Size = sizeof(Air2Ground_Video_Packet);
-constexpr size_t AIR2GROUND_VIDEO_HEADER_OFFSET = WLAN_PAYLOAD_OFFSET + sizeof(Air2Ground_Video_Packet);
-constexpr size_t AIR2GROUND_VIDEO_MAX_PAYLOAD_SIZE = WLAN_MAX_PAYLOAD_SIZE - sizeof(Air2Ground_Video_Packet);
+constexpr size_t Video_Header = sizeof(Air2Ground_Video_Packet);
+static_assert(Video_Header == 2, "");
+constexpr size_t VIDEO_MAX_PAYLOAD_SIZE = WLAN_MAX_PAYLOAD_SIZE - Air2Ground_Header_Size - Video_Header;
 
 struct Air2Ground_status_Packet : Air2Ground_Header{
     union {
@@ -179,7 +179,7 @@ public:
         // packet.crc = 0;
     };
 
-    esp_err_t send_air2ground_video_packet(bool last, uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index);
+    esp_err_t send_air2ground_video_packet(uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index);
 
     float calculate_throughput();
 
