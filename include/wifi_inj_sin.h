@@ -6,9 +6,6 @@
   #ifdef CONFIG_SPIRAM
     #include "esp_heap_caps.h"
   #endif
-#else
-  #define ESP_LOGE(tag, format, ...) fprintf(stderr, format, ##__VA_ARGS__)
-  #define ESP_LOGI(tag, format, ...) fprintf(stdout, format, ##__VA_ARGS__)
 #endif
 
 
@@ -153,7 +150,7 @@ struct Air2Ground_MAVLink_Packet : Air2Ground_Header{
 
 };
 
-
+#ifdef ESP_PLATFORM
 
 class WiFi_injection_sniffer{
 public:
@@ -200,4 +197,4 @@ private:
     static int8_t *_rssi;
 };
 
-
+#endif
