@@ -67,18 +67,18 @@ void WiFi_injection_sniffer::init(uint16_t *channel_data, int8_t *noise_floor, i
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_set_channel(DEFAULT_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE));
 
-    /* Sinffer */
-    _channel_data = channel_data;
-    _noise_floor = noise_floor;
-    _rssi = rssi;
+    /* Sinffer */ //tx from ground to air will done by lora/nrf 
+    // _channel_data = channel_data;
+    // _noise_floor = noise_floor;
+    // _rssi = rssi;
 
-    wifi_promiscuous_filter_t filter = {
-        .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous_filter(&filter));
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous_ctrl_filter(&filter));
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous_rx_cb((wifi_promiscuous_cb_t)&packet_received_cb));
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
+    // wifi_promiscuous_filter_t filter = {
+    //     .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA
+    // };
+    // ESP_ERROR_CHECK(esp_wifi_set_promiscuous_filter(&filter));
+    // ESP_ERROR_CHECK(esp_wifi_set_promiscuous_ctrl_filter(&filter));
+    // ESP_ERROR_CHECK(esp_wifi_set_promiscuous_rx_cb((wifi_promiscuous_cb_t)&packet_received_cb));
+    // ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
 
     //set mac address
     // ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_MODE, _mac)); // cause error esp_wifi_80211_tx en_sys_seq
@@ -127,19 +127,21 @@ IRAM_ATTR void WiFi_injection_sniffer::packet_received_cb(uint8_t* buf, uint8_t 
 
     //mac compare, sender check
     WiFi_injection_sniffer instance;
-    const uint8_t *src_mac = payload + 16;
-    if (memcmp(src_mac, &instance._mac, 6) != 0) return; //not the pack for us
-
+    //const uint8_t *src_mac = payload + 16;
+    //if (memcmp(src_mac, &instance._mac[0], 6) != 0) return; //not the pack for us
+    if (memcmp(payload, &WLAN_IEEE_HEADER_GROUND2AIR[0], WLAN_IEEE_HEADER_SIZE) != 0) return; //not the pack for us
+    printf("a\n");
+ 
     *_rssi = pkt->rx_ctrl.rssi;
     *_noise_floor = pkt->rx_ctrl.noise_floor;
 
-    Ground2Air_Header* ground2air_payload = (Ground2Air_Header*)payload;
+    Ground2Air_Header* ground2air_payload = (Ground2Air_Header*)payload+WLAN_IEEE_HEADER_SIZE;
     if(ground2air_payload->type == Ground2Air_Header::Type::Telemetry){
-        //Ground2Air_Data_Packet *ground2air_payload = (Ground2Air_Data_Packet*)payload;
-        //memcpy(_channel_data, &ground2air_payload->channel_data[0], sizeof(ground2air_payload->channel_data));
-        //for (uint8_t i=0; i<10; i++){
-        //    _channel_data[i+4] = ground2air_payload->channel_data_1[i];
-        //}
+        Ground2Air_Data_Packet *ground2air_payload = (Ground2Air_Data_Packet*)payload;
+        memcpy(_channel_data, &ground2air_payload->channel_data[0], sizeof(ground2air_payload->channel_data));
+        for (uint8_t i=0; i<10; i++){
+           _channel_data[i+4] = ground2air_payload->channel_data_1[i];
+        }
     }else if(ground2air_payload->type == Ground2Air_Header::Type::Config){
 
     }else{
