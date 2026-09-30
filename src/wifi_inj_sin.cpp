@@ -110,6 +110,10 @@ void WiFi_injection_sniffer::set_wifi_fixed_rate(uint8_t value){
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
+void WiFi_injection_sniffer::set_channel(uint8_t channel){
+    ESP_ERROR_CHECK(esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE));
+}
+
 IRAM_ATTR esp_err_t WiFi_injection_sniffer::send_air2ground_video_packet(uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index){
     Air2Ground_Header& packet = *(Air2Ground_Header*)(packet_data+WLAN_IEEE_HEADER_SIZE);
         packet.type = Air2Ground_Header::Type::Video;
@@ -119,6 +123,18 @@ IRAM_ATTR esp_err_t WiFi_injection_sniffer::send_air2ground_video_packet(uint8_t
 
     return _injection(packet_data, packet_size+sizeof(Air2Ground_Header));
 };
+
+esp_err_t WiFi_injection_sniffer::send_air2ground_serial_packet(const uint8_t* data, size_t size){
+    if (!data || size == 0 || size > 256) return ESP_ERR_INVALID_SIZE;
+    uint8_t packet_data[WLAN_IEEE_HEADER_SIZE + Air2Ground_Header_Size + sizeof(Air2Ground_Serial_Packet) + 256] = {};
+    Air2Ground_Header& header = *(Air2Ground_Header*)(packet_data + WLAN_IEEE_HEADER_SIZE);
+    header.type = Air2Ground_Header::Type::SerialData;
+    header.packet_version = PACKET_VERSION;
+    Air2Ground_Serial_Packet& serial = *(Air2Ground_Serial_Packet*)(packet_data + WLAN_IEEE_HEADER_SIZE + Air2Ground_Header_Size);
+    serial.payload_length = static_cast<uint16_t>(size);
+    memcpy(packet_data + WLAN_IEEE_HEADER_SIZE + Air2Ground_Header_Size + sizeof(serial), data, size);
+    return _injection(packet_data, Air2Ground_Header_Size + sizeof(serial) + size);
+}
 
 /* Private */
 IRAM_ATTR void WiFi_injection_sniffer::packet_received_cb(uint8_t* buf, uint8_t type){

@@ -161,6 +161,7 @@ public:
     void init(uint16_t *channel_data, int8_t *noise_floor, int8_t *rssi);
     
     void set_wifi_fixed_rate(uint8_t value);
+    void set_channel(uint8_t channel);
 
     //process settings not related to camera sensor setup
     static void handle_ground2air_config_packetEx1(Ground2Air_Config_Packet& src){
@@ -181,6 +182,7 @@ public:
     };
 
     esp_err_t send_air2ground_video_packet(uint8_t* packet_data, size_t packet_size, uint32_t frame_index, uint8_t part_index);
+    esp_err_t send_air2ground_serial_packet(const uint8_t* data, size_t size);
 
     float calculate_throughput();
 
