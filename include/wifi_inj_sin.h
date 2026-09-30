@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstring>
 #ifdef ESP_PLATFORM
   #include "esp_log.h"
@@ -196,6 +197,7 @@ private:
     //throughput
     int64_t _last_time = 0;
     size_t _send_size = 0;
+    std::atomic<uint16_t> _last_tx_time_us{0};
 
     //ground2air
     static uint16_t *_channel_data;

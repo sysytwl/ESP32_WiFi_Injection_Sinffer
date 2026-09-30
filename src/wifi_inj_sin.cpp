@@ -171,6 +171,17 @@ IRAM_ATTR esp_err_t WiFi_injection_sniffer::_injection(uint8_t* data, size_t len
     //     return ESP_ERR_INVALID_SIZE; //invalid data
     // }    
     memcpy(data, _tx_header, WLAN_IEEE_HEADER_SIZE);
+    uint16_t previous = _last_tx_time_us.load(std::memory_order_relaxed);
+    uint16_t tx_time_us;
+    do {
+        const uint16_t now = static_cast<uint16_t>(esp_timer_get_time());
+        tx_time_us = static_cast<int16_t>(now - previous) > 0
+            ? now
+            : static_cast<uint16_t>(previous + 1);
+    } while (!_last_tx_time_us.compare_exchange_weak(previous, tx_time_us,
+        std::memory_order_relaxed, std::memory_order_relaxed));
+    data[2] = static_cast<uint8_t>(tx_time_us & 0xff);
+    data[3] = static_cast<uint8_t>(tx_time_us >> 8);
 
     size_t size_to_send = WLAN_IEEE_HEADER_SIZE + len;
     _send_size += size_to_send;
