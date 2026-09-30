@@ -103,6 +103,7 @@ struct Air2Ground_Header{
     enum Type: uint8_t{
         Video,
         Telemetry,
+        SerialData,
     } type;
     uint8_t part_index;
     uint8_t packet_version;
@@ -117,6 +118,9 @@ struct Air2Ground_Video_Packet{
     uint8_t img_count;
     //data follows
     //uint8_t data[AIR2GROUND_VIDEO_MAX_PAYLOAD_SIZE];
+};
+struct Air2Ground_Serial_Packet{
+    uint16_t payload_length;
 };
 constexpr size_t Video_Header = sizeof(Air2Ground_Video_Packet);
 static_assert(Video_Header == 2, "");
